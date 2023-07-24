@@ -1,28 +1,23 @@
 const Book = require('../models/Book');
-const mongoose = require('mongoose');
-const fs = require('fs');
 
 exports.createBook = (req, res, next) => {
-    console.log("Enter createBook");
     const bookObject = JSON.parse(req.body.book);
     delete bookObject._id;
     delete bookObject._userId;
     const book = new Book({
         ...bookObject,
         userId: req.auth.userId,
-        imageUrl: `${req.protocol}://${req.get('host')}/images/${req.file.filename}`
+        imageUrl: `${req.protocol}://${req.get('host')}/${req.webpPath}`
     });
-    console.log("Toujours dans createBook");
     book.save()
         .then(() => { res.status(201).json({ message: 'Objet enregistré !' }) })
         .catch(error => { res.status(400).json({ error }) })
 };
 
 exports.modifyBook = (req, res, next) => {
-    console.log('enter modifyBook');
     const bookObject = req.file ? {
         ...JSON.parse(req.body.book),
-        imageUrl: `${req.protocol}://${req.get('host')}/images/${req.file.filename}`
+        imageUrl: `${req.protocol}://${req.get('host')}/${req.webpPath}`
     } : { ...req.body };
 
     delete bookObject._userId;
@@ -42,46 +37,14 @@ exports.modifyBook = (req, res, next) => {
 };
 
 exports.deleteBook = (req, res, next) => {
-    console.log('enter deleteBook');
-
-    // Vérifier si l'ID du livre est valide
-    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
-        console.log('deleteBook livre inexistant');
-        return res.status(404).json({ message: 'Livre non trouvé' });
-    }
-
     Book.findOne({ _id: req.params.id })
         .then(book => {
-            console.log('enter then.deleteBook');
             if (book.userId != req.auth.userId) {
                 res.status(401).json({ message: 'Not authorized' });
             } else {
-                console.log('enter else deleteBook');
                 const filename = book.imageUrl.split('/images/')[1];
-                console.log('filename = %s', filename);
                 fs.unlink(`images/${filename}`, () => {
-                    console.log('enter fs.unlink');
                     Book.deleteOne({ _id: req.params.id })
-                        .then(() => { res.status(200).json({ message: 'Objet supprimé !' }) })
-                        .catch(error => res.status(401).json({ error }));
-                });
-            }
-        })
-        .catch(error => {
-            console.log('Error DeleteBook');
-            res.status(500).json({ error });
-        });
-};
-
-exports.deleteThing = (req, res, next) => {
-    Thing.findOne({ _id: req.params.id })
-        .then(thing => {
-            if (thing.userId != req.auth.userId) {
-                res.status(401).json({ message: 'Not authorized' });
-            } else {
-                const filename = thing.imageUrl.split('/images/')[1];
-                fs.unlink(`images/${filename}`, () => {
-                    Thing.deleteOne({ _id: req.params.id })
                         .then(() => { res.status(200).json({ message: 'Objet supprimé !' }) })
                         .catch(error => res.status(401).json({ error }));
                 });
@@ -93,26 +56,21 @@ exports.deleteThing = (req, res, next) => {
 };
 
 exports.getOneBook = (req, res, next) => {
-    console.log('enter getOneBook');
     Book.findOne({ _id: req.params.id })
         .then(book => {
             res.status(200).json(book);
-            console.log('good result getOneBook');
             next();
         })
         .catch(error => res.status(404).json({ error }));
-    console.log('exit getOneBook');
 }
 
 exports.getAllBook = (req, res, next) => {
-    console.log('getAllBook');
     Book.find()
         .then(books => res.status(200).json(books))
         .catch(error => res.status(400).json({ error }));
 }
 
 exports.bestRating = (req, res, next) => {
-    console.log('enter bestRating');
     // Utilisez la méthode aggregate de Mongoose pour calculer la note moyenne de chaque livre
     Book.aggregate([
         {
@@ -139,7 +97,6 @@ exports.bestRating = (req, res, next) => {
 }
 
 exports.rating = (req, res, next) => {
-    console.log('enter rating')
     const userId = req.auth.userId;
     const rating = req.body.rating;
 
