@@ -16,7 +16,7 @@ const app = express();
 
 
 const corsOptions = {
-    origin: 'http://localhost:3000',
+    origin: 'https://monvieuxgrimoire-gc-6f14ede2407f.herokuapp.com/',
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Origin', 'X-Requested-With', 'Content', 'Accept', 'Content-Type', 'Authorization']
 };
