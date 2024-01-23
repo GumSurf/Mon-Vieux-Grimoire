@@ -22,5 +22,8 @@
   "engines": {
     "node": "v18.19.0",
     "npm": "10.0.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.3"
   }
 }
