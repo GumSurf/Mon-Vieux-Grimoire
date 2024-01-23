@@ -13,5 +13,3 @@
     "dependencies": {
     }
   }
-  //      "start": "cd backend && nodemon server && cd ../frontend && npm start",
-  //"heroku-postbuild": "cd frontend && npm install --production && npm run build"
