@@ -4,7 +4,8 @@
   "description": "",
   "main": "server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "nodemon server.js"
   },
   "author": "",
   "license": "ISC",
@@ -22,8 +23,5 @@
   "engines": {
     "node": "v18.19.0",
     "npm": "10.0.0"
-  },
-  "devDependencies": {
-    "nodemon": "^3.0.3"
   }
 }
