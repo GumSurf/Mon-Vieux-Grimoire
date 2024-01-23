@@ -1,0 +1,16 @@
+{
+    "name": "monvieuxgrimoire",
+    "version": "1.0.0",
+    "description": "Description de votre application",
+    "scripts": {
+      "start": "cd backend && nodemon server && cd ../frontend && npm start",
+      "heroku-postbuild": "cd frontend && npm install --production && npm run build"
+    },
+    "engines": {
+      "node": "v18.19.0",
+      "npm": "10.0.0"
+    },
+    "dependencies": {
+    }
+  }
+  
