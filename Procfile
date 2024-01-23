@@ -1,1 +1,1 @@
-web: cd backend && npm start & cd frontend && npm run build
+web: cd frontend && npm start
