@@ -16,7 +16,7 @@ const app = express();
 
 
 const corsOptions = {
-    origin: 'https://gumsurf.github.io',
+    origin: ['https://gumsurf.github.io', 'http://localhost:3000/P7-Dev-Web-livres'],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Origin', 'X-Requested-With', 'Content', 'Accept', 'Content-Type', 'Authorization']
 };
