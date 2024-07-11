@@ -26,7 +26,7 @@ app.use(cors(corsOptions));
 app.use(express.json());
 
 app.get('/', (req, res, next) => {
-    res.send('Bienvenue sur mon serveur !');
+    res.send('Bienvenue sur mon serveur Mon Vieux Grimoire !');
     next();
 });
 
