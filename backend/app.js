@@ -3,6 +3,9 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const path = require('path');
 
+const multer = require('multer');
+const { Storage } = require('@google-cloud/storage');
+
 const bookRoutes = require('./routes/book');
 const userRoutes = require('./routes/user');
 
