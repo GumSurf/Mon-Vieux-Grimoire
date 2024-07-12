@@ -23,6 +23,7 @@ exports.createBook = (req, res, next) => {
 
     // Upload de l'image vers Google Cloud Storage
     const blob = bucket.file(book.imageUrl);
+    console.log("blob = ", blob);
     const blobStream = blob.createWriteStream({
         resumable: false,
         gzip: true,
