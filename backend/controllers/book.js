@@ -1,6 +1,16 @@
 const Book = require('../models/Book');
 const fs = require('fs');
 
+const { Storage } = require('@google-cloud/storage');
+
+// Configuration du client Google Cloud Storage
+const storage = new Storage({
+    keyFilename: process.env.GOOGLE_APPLICATION_CREDENTIALS,
+    projectId: process.env.GCS_PROJECT_ID
+});
+
+const bucket = storage.bucket(process.env.GCS_BUCKET_NAME);
+
 exports.createBook = (req, res, next) => {
     const bookObject = JSON.parse(req.body.book);
     delete bookObject._id;
@@ -10,9 +20,36 @@ exports.createBook = (req, res, next) => {
         userId: req.auth.userId,
         imageUrl: `${req.protocol}://${req.get('host')}/${req.webpPath}`
     });
-    book.save()
+
+    // Upload de l'image vers Google Cloud Storage
+    const blob = bucket.file(book.imageUrl);
+    const blobStream = blob.createWriteStream({
+        resumable: false,
+        gzip: true,
+        metadata: {
+            contentType: req.file.mimetype
+        }
+    });
+
+    blobStream.on('error', (err) => {
+        console.error('Erreur lors du téléchargement de l\'image vers GCS:', err);
+        res.status(500).json({ error: 'Erreur lors du téléchargement de l\'image vers GCS' });
+    });
+
+    blobStream.on('finish', () => {
+        // Une fois l'image téléchargée, enregistrer le livre dans la base de données
+        book.save()
+            .then(() => { res.status(201).json({ message: 'Objet enregistré !' }) })
+            .catch(error => { 
+                res.status(400).json({ error }) });
+    });
+
+    // Écrire le buffer de l'image dans le flux
+    blobStream.end(req.file.buffer);
+
+    /*book.save()
         .then(() => { res.status(201).json({ message: 'Objet enregistré !' }) })
-        .catch(error => { res.status(400).json({ error }) })
+        .catch(error => { res.status(400).json({ error }) })*/
 };
 
 exports.modifyBook = (req, res, next) => {
@@ -27,14 +64,50 @@ exports.modifyBook = (req, res, next) => {
             if (book.userId != req.auth.userId) {
                 res.status(401).json({ message: 'Not authorized' });
             } else {
-                Book.updateOne({ _id: req.params.id }, { ...bookObject, _id: req.params.id })
-                    .then(() => res.status(200).json({ message: 'Objet modifié!' }))
-                    .catch(error => res.status(401).json({ error }));
+                // Supprimer l'ancienne image de GCS
+                const oldFileName = book.imageUrl;
+                bucket.file(oldFileName).delete()
+                    .then(() => {
+                        // Upload de la nouvelle image vers GCS
+                        const blob = bucket.file(bookObject.imageUrl);
+                        const blobStream = blob.createWriteStream({
+                            resumable: false,
+                            gzip: true,
+                            metadata: {
+                                contentType: req.file.mimetype
+                            }
+                        });
+
+                        blobStream.on('error', (err) => {
+                            console.error('Erreur lors du téléchargement de l\'image vers GCS:', err);
+                            res.status(500).json({ error: 'Erreur lors du téléchargement de l\'image vers GCS' });
+                        });
+
+                        blobStream.on('finish', () => {
+                            // Mettre à jour le livre dans la base de données avec la nouvelle image
+                            Book.updateOne({ _id: req.params.id }, { ...bookObject, _id: req.params.id })
+                                .then(() => res.status(200).json({ message: 'Objet modifié!' }))
+                                .catch(error => res.status(401).json({ error }));
+                        });
+
+                        blobStream.end(req.file.buffer);
+                    })
+                    .catch(error => {
+                        res.status(500).json({ error })});
             }
         })
         .catch((error) => {
             res.status(400).json({ error });
         });
+    /*} else {
+        Book.updateOne({ _id: req.params.id }, { ...bookObject, _id: req.params.id })
+            .then(() => res.status(200).json({ message: 'Objet modifié!' }))
+            .catch(error => res.status(401).json({ error }));
+    }
+})
+.catch((error) => {
+    res.status(400).json({ error });
+});*/
 };
 
 exports.deleteBook = (req, res, next) => {
