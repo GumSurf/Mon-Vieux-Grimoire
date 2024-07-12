@@ -3,6 +3,10 @@ const fs = require('fs');
 
 // Middleware pour traiter l'image avant de la sauvegarder
 const uploadImageMiddleware = (req, res, next) => {
+    if (!req.file || !req.file.path) {
+        return res.status(400).json({ error: 'Aucun fichier trouvé ou chemin invalide.' });
+    }
+
     // Chemin de sortie pour le fichier WebP
     const webpPath = req.file.path.replace(/\.(jpeg|jpg|png)$/, '.webp');
 
@@ -27,10 +31,19 @@ const uploadImageMiddleware = (req, res, next) => {
                 // Mettre à jour le chemin de l'image pour qu'il pointe vers le fichier WebP
                 req.webpPath = webpPath;
 
+                fs.unlink(req.file.path, (err) => {
+                    if (err) {
+                        console.error('Erreur lors de la suppression du fichier original :', err);
+                        return res.status(500).json({ error: 'Une erreur est survenue lors du traitement de l\'image.' });
+                    }
+                    
+                    next();
+                });
+
                 // Supprimer le fichier d'origine après la conversion
-                fs.unlinkSync(req.file.path);
+                //fs.unlinkSync(req.file.path);
                 
-                next();
+                //next();
             });
         });
 };
