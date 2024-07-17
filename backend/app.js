@@ -1,10 +1,9 @@
+require('dotenv').config();
+
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const path = require('path');
-
-const multer = require('multer');
-const { Storage } = require('@google-cloud/storage');
 
 const bookRoutes = require('./routes/book');
 const userRoutes = require('./routes/user');
@@ -21,12 +20,12 @@ const app = express();
 
 
 const corsOptions = {
-    origin: ['https://gumsurf.github.io', 'http://localhost:3000'],
+    origin: ['https://gumsurf.github.io', 'http://localhost:3000', 'https://mon-vieux-grimoire-backend.vercel.app'],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     allowedHeaders: ['Origin', 'X-Requested-With', 'Content', 'Accept', 'Content-Type', 'Authorization']
 };
 
-app.use(cors());
+app.use(cors(corsOptions));
 
 app.use(express.json());
 
