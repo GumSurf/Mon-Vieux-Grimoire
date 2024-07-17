@@ -1,9 +1,7 @@
+const { v4: uuidv4 } = require('uuid');
 const Book = require('../models/Book');
-const fs = require('fs');
-
 const { Storage } = require('@google-cloud/storage');
 
-// Configuration du client Google Cloud Storage
 const storage = new Storage({
     keyFilename: process.env.GOOGLE_APPLICATION_CREDENTIALS,
     projectId: process.env.GCS_PROJECT_ID
@@ -18,19 +16,12 @@ exports.createBook = (req, res, next) => {
     const book = new Book({
         ...bookObject,
         userId: req.auth.userId,
-        imageUrl: `${req.protocol}://${req.get('host')}/${req.webpPath}`
+        // Pas besoin d'imageUrl ici, elle sera générée lors de l'upload vers GCS
     });
 
     // Upload de l'image vers Google Cloud Storage
-    const blob = bucket.file(book.imageUrl);
-    console.log("blob = ", blob);
-    const blobStream = blob.createWriteStream({
-        resumable: false,
-        gzip: true,
-        metadata: {
-            contentType: req.file.mimetype
-        }
-    });
+    const blob = bucket.file(`${uuidv4()}-${req.file.originalname}`); // Utilisez le nom original du fichier
+    const blobStream = blob.createWriteStream();
 
     blobStream.on('error', (err) => {
         console.error('Erreur lors du téléchargement de l\'image vers GCS:', err);
@@ -38,92 +29,139 @@ exports.createBook = (req, res, next) => {
     });
 
     blobStream.on('finish', () => {
-        // Une fois l'image téléchargée, enregistrer le livre dans la base de données
+        // Une fois l'image téléchargée, enregistrer le livre dans la base de données avec l'URL de l'image GCS
+        book.imageUrl = `https://storage.googleapis.com/${bucket.name}/${blob.name}`;
         book.save()
-            .then(() => { res.status(201).json({ message: 'Objet enregistré !' }) })
-            .catch(error => { 
-                res.status(400).json({ error }) });
+            .then(() => {
+                res.status(201).json({ message: 'Objet enregistré !' })
+                console.log("Success !")
+            })
+            .catch(error => { res.status(400).json({ error }) });
     });
 
     // Écrire le buffer de l'image dans le flux
     blobStream.end(req.file.buffer);
-
-    /*book.save()
-        .then(() => { res.status(201).json({ message: 'Objet enregistré !' }) })
-        .catch(error => { res.status(400).json({ error }) })*/
 };
 
 exports.modifyBook = (req, res, next) => {
     const bookObject = req.file ? {
         ...JSON.parse(req.body.book),
-        imageUrl: `${req.protocol}://${req.get('host')}/${req.webpPath}`
+        // Pas besoin d'imageUrl ici, elle sera mise à jour lors de l'upload vers GCS
     } : { ...req.body };
 
     delete bookObject._userId;
+
+    let oldImageUrl; // Pour stocker l'ancienne URL de l'image
+
     Book.findOne({ _id: req.params.id })
         .then((book) => {
+            if (!book) {
+                return res.status(404).json({ message: 'Livre non trouvé' });
+            }
+
             if (book.userId != req.auth.userId) {
-                res.status(401).json({ message: 'Not authorized' });
+                return res.status(401).json({ message: 'Non autorisé' });
+            }
+
+            if (req.file) {
+                // Si un nouveau fichier a été téléchargé, supprimer l'ancienne image de GCS (si elle existe)
+                oldImageUrl = book.imageUrl; // Sauvegarde de l'ancienne URL
+
+                // Supprimer l'ancienne image de GCS (si elle existe)
+                if (oldImageUrl) {
+                    const filename = oldImageUrl.split(`/${bucket.name}/`)[1];
+                    const file = bucket.file(filename);
+
+                    file.delete()
+                        .then(() => {
+                            console.log(`Ancienne image supprimée de GCS: ${filename}`);
+                            uploadNewImage(book);
+                        })
+                        .catch(err => {
+                            console.error('Erreur lors de la suppression de l\'ancienne image de GCS:', err);
+                            res.status(500).json({ error: 'Erreur lors de la suppression de l\'ancienne image de GCS' });
+                        });
+                } else {
+                    uploadNewImage(book);
+                }
             } else {
-                // Supprimer l'ancienne image de GCS
-                const oldFileName = book.imageUrl;
-                bucket.file(oldFileName).delete()
+                // Si aucun nouveau fichier n'a été téléchargé, simplement mettre à jour le livre sans changer l'image
+                Book.updateOne({ _id: req.params.id }, { ...bookObject })
                     .then(() => {
-                        // Upload de la nouvelle image vers GCS
-                        const blob = bucket.file(bookObject.imageUrl);
-                        const blobStream = blob.createWriteStream({
-                            resumable: false,
-                            gzip: true,
-                            metadata: {
-                                contentType: req.file.mimetype
-                            }
-                        });
-
-                        blobStream.on('error', (err) => {
-                            console.error('Erreur lors du téléchargement de l\'image vers GCS:', err);
-                            res.status(500).json({ error: 'Erreur lors du téléchargement de l\'image vers GCS' });
-                        });
-
-                        blobStream.on('finish', () => {
-                            // Mettre à jour le livre dans la base de données avec la nouvelle image
-                            Book.updateOne({ _id: req.params.id }, { ...bookObject, _id: req.params.id })
-                                .then(() => res.status(200).json({ message: 'Objet modifié!' }))
-                                .catch(error => res.status(401).json({ error }));
-                        });
-
-                        blobStream.end(req.file.buffer);
+                        res.status(200).json({ message: 'Objet modifié sans changer l\'image!' });
+                        console.log("Succès de la modification sans changement d'image !");
                     })
                     .catch(error => {
-                        res.status(500).json({ error })});
+                        res.status(400).json({ error });
+                    });
             }
         })
         .catch((error) => {
             res.status(400).json({ error });
         });
-    /*} else {
-        Book.updateOne({ _id: req.params.id }, { ...bookObject, _id: req.params.id })
-            .then(() => res.status(200).json({ message: 'Objet modifié!' }))
-            .catch(error => res.status(401).json({ error }));
+
+    function uploadNewImage(book) {
+        console.log("req.file.originalname = ", req.file.originalname);
+        // Upload de la nouvelle image vers GCS
+        const uniqueName = `${uuidv4()}-${encodeURIComponent(req.file.originalname)}`;
+        const blob = bucket.file(uniqueName);
+        const blobStream = blob.createWriteStream();
+
+        blobStream.on('error', (err) => {
+            console.error('Erreur lors du téléchargement de l\'image vers GCS:', err);
+            res.status(500).json({ error: 'Erreur lors du téléchargement de l\'image vers GCS' });
+        });
+
+        blobStream.on('finish', () => {
+            // Mettre à jour le livre dans la base de données avec la nouvelle URL de l'image GCS
+            book.imageUrl = `https://storage.googleapis.com/${bucket.name}/${blob.name}`;
+            Book.updateOne({ _id: req.params.id }, { ...bookObject, imageUrl: book.imageUrl })
+                .then(() => {
+                    res.status(200).json({ message: 'Objet modifié avec nouvelle image!' });
+                    console.log("Succès de la modification avec nouvelle image !");
+                })
+                .catch(error => {
+                    res.status(400).json({ error });
+                });
+        });
+
+        // Écrire le buffer de l'image dans le flux
+        blobStream.end(req.file.buffer);
     }
-})
-.catch((error) => {
-    res.status(400).json({ error });
-});*/
 };
 
 exports.deleteBook = (req, res, next) => {
     Book.findOne({ _id: req.params.id })
         .then(book => {
-            if (book.userId != req.auth.userId) {
-                res.status(401).json({ message: 'Not authorized' });
-            } else {
-                const filename = book.imageUrl.split('/images/')[1];
-                fs.unlink(`images/${filename}`, () => {
-                    Book.deleteOne({ _id: req.params.id })
-                        .then(() => { res.status(200).json({ message: 'Objet supprimé !' }) })
-                        .catch(error => res.status(401).json({ error }));
-                });
+            if (!book) {
+                return res.status(404).json({ message: 'Livre non trouvé' });
             }
+            if (book.userId != req.auth.userId) {
+                return res.status(401).json({ message: 'Non autorisé' });
+            }
+
+            // Récupérer le nom du fichier à partir de l'URL de l'image
+            const filename = book.imageUrl.split(`/${bucket.name}/`)[1];
+            const file = bucket.file(filename);
+
+            // Supprimer l'image de GCS
+            file.delete()
+                .then(() => {
+                    console.log(`Image supprimée de GCS: ${filename}`);
+
+                    // Supprimer le livre de la base de données
+                    Book.deleteOne({ _id: req.params.id })
+                        .then(() => {
+                            res.status(200).json({ message: 'Objet supprimé !' });
+                        })
+                        .catch(error => {
+                            res.status(401).json({ error });
+                        });
+                })
+                .catch(err => {
+                    console.error('Erreur lors de la suppression de l\'image de GCS:', err);
+                    res.status(500).json({ error: 'Erreur lors de la suppression de l\'image de GCS' });
+                });
         })
         .catch(error => {
             res.status(500).json({ error });
