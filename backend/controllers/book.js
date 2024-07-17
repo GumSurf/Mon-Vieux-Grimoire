@@ -1,13 +1,12 @@
 const { v4: uuidv4 } = require('uuid');
 const Book = require('../models/Book');
 const { Storage } = require('@google-cloud/storage');
+const { getGCPCredentials } = require('config/GCPCredentials.js'); // Assurez-vous de remplacer par le bon chemin
 
-const storage = new Storage({
-    keyFilename: process.env.GOOGLE_APPLICATION_CREDENTIALS,
-    projectId: process.env.GCS_PROJECT_ID
-});
+const storageClient = new Storage(getGCPCredentials());
+const bucketName = process.env.GCS_BUCKET_NAME; // Assurez-vous que le nom du bucket est défini dans vos variables d'environnement
 
-const bucket = storage.bucket(process.env.GCS_BUCKET_NAME);
+const bucket = storageClient.bucket(bucketName);
 
 exports.createBook = (req, res, next) => {
     const bookObject = JSON.parse(req.body.book);
