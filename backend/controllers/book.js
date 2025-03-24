@@ -1,170 +1,137 @@
 const { v4: uuidv4 } = require('uuid');
 const Book = require('../models/Book');
-const { Storage } = require('@google-cloud/storage');
-const { getGCPCredentials } = require('../config/GCPCredentials.js'); // Assurez-vous de remplacer par le bon chemin
+const cloudinary = require("cloudinary").v2;
+const multer = require("multer");
 
-const storageClient = new Storage(getGCPCredentials());
-const bucketName = process.env.GCS_BUCKET_NAME; // Assurez-vous que le nom du bucket est défini dans vos variables d'environnement
+cloudinary.config({
+    cloud_name: "dopysnsl1",
+    api_key: "157758776167552",
+    api_secret: "CVmR_Xv36NDMYbTyvoFQ3wcAnNE",
+});
 
-const bucket = storageClient.bucket(bucketName);
+const storage = multer.memoryStorage();
+const upload = multer({ storage });
 
-exports.createBook = (req, res, next) => {
-    const bookObject = JSON.parse(req.body.book);
-    delete bookObject._id;
-    delete bookObject._userId;
-    const book = new Book({
-        ...bookObject,
-        userId: req.auth.userId,
-        // Pas besoin d'imageUrl ici, elle sera générée lors de l'upload vers GCS
-    });
+exports.createBook = async (req, res) => {
+    try {
+        const { book } = req.body;
+        const parsedBook = JSON.parse(book);
 
-    // Upload de l'image vers Google Cloud Storage
-    const blob = bucket.file(`${uuidv4()}-${req.file.originalname}`); // Utilisez le nom original du fichier
-    const blobStream = blob.createWriteStream();
+        if (!req.file) {
+            return res.status(400).json({ error: "Image required" });
+        }
 
-    blobStream.on('error', (err) => {
-        console.error('Erreur lors du téléchargement de l\'image vers GCS:', err);
-        res.status(500).json({ error: 'Erreur lors du téléchargement de l\'image vers GCS' });
-    });
-
-    blobStream.on('finish', () => {
-        // Une fois l'image téléchargée, enregistrer le livre dans la base de données avec l'URL de l'image GCS
-        book.imageUrl = `https://storage.googleapis.com/${bucket.name}/${blob.name}`;
-        book.save()
-            .then(() => {
-                res.status(201).json({ message: 'Objet enregistré !' })
-                console.log("Success !")
-            })
-            .catch(error => { res.status(400).json({ error }) });
-    });
-
-    // Écrire le buffer de l'image dans le flux
-    blobStream.end(req.file.buffer);
-};
-
-exports.modifyBook = (req, res, next) => {
-    const bookObject = req.file ? {
-        ...JSON.parse(req.body.book),
-        // Pas besoin d'imageUrl ici, elle sera mise à jour lors de l'upload vers GCS
-    } : { ...req.body };
-
-    delete bookObject._userId;
-
-    let oldImageUrl; // Pour stocker l'ancienne URL de l'image
-
-    Book.findOne({ _id: req.params.id })
-        .then((book) => {
-            if (!book) {
-                return res.status(404).json({ message: 'Livre non trouvé' });
-            }
-
-            if (book.userId != req.auth.userId) {
-                return res.status(401).json({ message: 'Non autorisé' });
-            }
-
-            if (req.file) {
-                // Si un nouveau fichier a été téléchargé, supprimer l'ancienne image de GCS (si elle existe)
-                oldImageUrl = book.imageUrl; // Sauvegarde de l'ancienne URL
-
-                // Supprimer l'ancienne image de GCS (si elle existe)
-                if (oldImageUrl) {
-                    const filename = oldImageUrl.split(`/${bucket.name}/`)[1];
-                    const file = bucket.file(filename);
-
-                    file.delete()
-                        .then(() => {
-                            console.log(`Ancienne image supprimée de GCS: ${filename}`);
-                            uploadNewImage(book);
-                        })
-                        .catch(err => {
-                            console.error('Erreur lors de la suppression de l\'ancienne image de GCS:', err);
-                            res.status(500).json({ error: 'Erreur lors de la suppression de l\'ancienne image de GCS' });
-                        });
-                } else {
-                    uploadNewImage(book);
+        // Upload l'image sur Cloudinary
+        const uploadResponse = await cloudinary.uploader.upload_stream(
+            { folder: "books" },
+            async (error, result) => {
+                if (error) {
+                    return res.status(500).json({ error: "Upload failed" });
                 }
-            } else {
-                // Si aucun nouveau fichier n'a été téléchargé, simplement mettre à jour le livre sans changer l'image
-                Book.updateOne({ _id: req.params.id }, { ...bookObject })
-                    .then(() => {
-                        res.status(200).json({ message: 'Objet modifié sans changer l\'image!' });
-                        console.log("Succès de la modification sans changement d'image !");
-                    })
-                    .catch(error => {
-                        res.status(400).json({ error });
-                    });
+
+                // Ajoute l'URL de l'image au livre
+                parsedBook.imageUrl = result.secure_url;
+
+                // Sauvegarde en base de données
+                const newBook = await Book.create(parsedBook);
+                res.status(201).json(newBook);
             }
-        })
-        .catch((error) => {
-            res.status(400).json({ error });
-        });
+        );
 
-    function uploadNewImage(book) {
-        console.log("req.file.originalname = ", req.file.originalname);
-        // Upload de la nouvelle image vers GCS
-        const uniqueName = `${uuidv4()}-${encodeURIComponent(req.file.originalname)}`;
-        const blob = bucket.file(uniqueName);
-        const blobStream = blob.createWriteStream();
-
-        blobStream.on('error', (err) => {
-            console.error('Erreur lors du téléchargement de l\'image vers GCS:', err);
-            res.status(500).json({ error: 'Erreur lors du téléchargement de l\'image vers GCS' });
-        });
-
-        blobStream.on('finish', () => {
-            // Mettre à jour le livre dans la base de données avec la nouvelle URL de l'image GCS
-            book.imageUrl = `https://storage.googleapis.com/${bucket.name}/${blob.name}`;
-            Book.updateOne({ _id: req.params.id }, { ...bookObject, imageUrl: book.imageUrl })
-                .then(() => {
-                    res.status(200).json({ message: 'Objet modifié avec nouvelle image!' });
-                    console.log("Succès de la modification avec nouvelle image !");
-                })
-                .catch(error => {
-                    res.status(400).json({ error });
-                });
-        });
-
-        // Écrire le buffer de l'image dans le flux
-        blobStream.end(req.file.buffer);
+        uploadResponse.end(req.file.buffer);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
     }
 };
 
-exports.deleteBook = (req, res, next) => {
-    Book.findOne({ _id: req.params.id })
-        .then(book => {
-            if (!book) {
-                return res.status(404).json({ message: 'Livre non trouvé' });
+exports.modifyBook = async (req, res) => {
+    try {
+        const bookObject = req.file
+            ? {
+                  ...JSON.parse(req.body.book),
+                  // L'imageUrl sera mise à jour après le téléchargement vers Cloudinary
+              }
+            : { ...req.body };
+
+        delete bookObject._userId;
+
+        let oldImageUrl; // Pour stocker l'ancienne URL de l'image
+
+        const book = await Book.findOne({ _id: req.params.id });
+
+        if (!book) {
+            return res.status(404).json({ message: "Livre non trouvé" });
+        }
+
+        if (book.userId != req.auth.userId) {
+            return res.status(401).json({ message: "Non autorisé" });
+        }
+
+        // Si une nouvelle image est envoyée
+        if (req.file) {
+            oldImageUrl = book.imageUrl; // Sauvegarde de l'ancienne URL
+
+            // Supprimer l'ancienne image de Cloudinary si elle existe
+            if (oldImageUrl) {
+                const publicId = oldImageUrl.split("/").slice(-2).join("/").split(".")[0];
+                await cloudinary.uploader.destroy(publicId);
             }
-            if (book.userId != req.auth.userId) {
-                return res.status(401).json({ message: 'Non autorisé' });
-            }
 
-            // Récupérer le nom du fichier à partir de l'URL de l'image
-            const filename = book.imageUrl.split(`/${bucket.name}/`)[1];
-            const file = bucket.file(filename);
+            // Upload de la nouvelle image
+            const uploadResponse = await new Promise((resolve, reject) => {
+                const uploadStream = cloudinary.uploader.upload_stream(
+                    { folder: "books" },
+                    (error, result) => (error ? reject(error) : resolve(result))
+                );
 
-            // Supprimer l'image de GCS
-            file.delete()
-                .then(() => {
-                    console.log(`Image supprimée de GCS: ${filename}`);
+                uploadStream.end(req.file.buffer);
+            });
 
-                    // Supprimer le livre de la base de données
-                    Book.deleteOne({ _id: req.params.id })
-                        .then(() => {
-                            res.status(200).json({ message: 'Objet supprimé !' });
-                        })
-                        .catch(error => {
-                            res.status(401).json({ error });
-                        });
-                })
-                .catch(err => {
-                    console.error('Erreur lors de la suppression de l\'image de GCS:', err);
-                    res.status(500).json({ error: 'Erreur lors de la suppression de l\'image de GCS' });
-                });
-        })
-        .catch(error => {
-            res.status(500).json({ error });
-        });
+            // Mettre à jour l'URL de l'image
+            bookObject.imageUrl = uploadResponse.secure_url;
+        } else {
+            // Si aucune nouvelle image n'est envoyée, on garde l'ancienne image
+            bookObject.imageUrl = book.imageUrl;
+        }
+
+        // Mettre à jour les autres champs du livre dans la base de données
+        const updatedBook = await Book.findByIdAndUpdate(req.params.id, { ...bookObject }, { new: true });
+
+        if (!updatedBook) {
+            return res.status(404).json({ message: "Erreur lors de la mise à jour du livre" });
+        }
+
+        res.status(200).json({ message: "Livre mis à jour avec succès !" });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+exports.deleteBook = async (req, res) => {
+    try {
+        const book = await Book.findOne({ _id: req.params.id });
+
+        if (!book) {
+            return res.status(404).json({ message: "Livre non trouvé" });
+        }
+
+        if (book.userId != req.auth.userId) {
+            return res.status(401).json({ message: "Non autorisé" });
+        }
+
+        // Supprimer l'image sur Cloudinary
+        if (book.imageUrl) {
+            const publicId = book.imageUrl.split("/").slice(-2).join("/").split(".")[0];
+            await cloudinary.uploader.destroy(publicId);
+        }
+
+        // Supprimer le livre de la base de données
+        await Book.deleteOne({ _id: req.params.id });
+
+        res.status(200).json({ message: "Livre supprimé avec succès !" });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
 };
 
 exports.getOneBook = (req, res, next) => {
